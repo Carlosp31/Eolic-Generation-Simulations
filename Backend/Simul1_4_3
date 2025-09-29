@@ -1,0 +1,45 @@
+#Turbulencia variable
+import numpy as np
+import pandas as pd
+from py_wake.examples.data.hornsrev1 import Hornsrev1Site, V80, wt16_x, wt16_y
+from py_wake.literature.gaussian_models import Bastankhah_PorteAgel_2014
+from py_wake.turbulence_models.crespo import CrespoHernandez
+
+def run_simulation_with_TI(base_TI):
+    """Corre la simulación con un TI de fondo definido."""
+    site = Hornsrev1Site()
+    original_local_wind = site.local_wind  # guardamos método original
+
+    # 🔧 Monkey patch con firma flexible
+    def custom_local_wind(*args, **kwargs):
+        lw = original_local_wind(*args, **kwargs)
+        # Forzamos TI a un valor constante
+        lw.TI = np.ones_like(lw.ws) * base_TI
+        return lw
+
+    site.local_wind = custom_local_wind
+
+    ti_model = CrespoHernandez()
+    # ✅ Se pasa k explícitamente (wake expansion coefficient)
+    model = Bastankhah_PorteAgel_2014(site, V80(), k=0.032, turbulenceModel=ti_model)
+
+    sim_res = model(wt16_x, wt16_y)
+    return sim_res.aep().sum().values
+
+# -------------------------------
+# Comparación de AEP con distintos TI
+# -------------------------------
+ti_values = [0.04, 0.08, 0.12]
+aep_results = []
+
+for ti in ti_values:
+    print(f"Simulando con TI = {ti*100:.0f}% ...")
+    aep_results.append(run_simulation_with_TI(ti))
+
+df = pd.DataFrame({
+    "TI Base": [f"{ti*100:.0f}%" for ti in ti_values],
+    "AEP Total [GWh]": aep_results
+})
+
+print("\n📊 Comparación de AEP con distintos TI de fondo:\n")
+print(df.to_string(index=False, formatters={"AEP Total [GWh]": "{:.2f}".format}))

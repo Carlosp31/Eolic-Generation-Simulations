@@ -1,0 +1,66 @@
+#Mapeo de multi turbulencia correcto
+import numpy as np
+import matplotlib.pyplot as plt
+from py_wake.examples.data.hornsrev1 import Hornsrev1Site, V80, wt16_x, wt16_y
+from py_wake.literature.gaussian_models import Bastankhah_PorteAgel_2014
+from py_wake.turbulence_models.crespo import CrespoHernandez
+
+# Parámetros
+ti_values = [0.04, 0.08, 0.12]   # TI de fondo a probar (fracción: 0.04 = 4%)
+wd = [270]
+ws = [8]
+
+def run_simulation_with_TI(base_TI):
+    site = Hornsrev1Site()
+    original_local_wind = site.local_wind
+
+    def custom_local_wind(*args, **kwargs):
+        lw = original_local_wind(*args, **kwargs)
+        lw.TI = np.ones_like(lw.ws) * base_TI
+        return lw
+
+    site.local_wind = custom_local_wind
+    k_dynamic = 0.3837 * base_TI + 0.003678
+    ti_model = CrespoHernandez()
+    model = Bastankhah_PorteAgel_2014(site, V80(), k=k_dynamic, turbulenceModel=ti_model)
+    sim_res = model(wt16_x, wt16_y, wd=wd, ws=ws)
+    return sim_res.flow_map(wd=wd, ws=ws)
+
+maps = []
+for ti in ti_values:
+    print(f"Simulando TI base = {ti*100:.1f}% ...")
+    fm = run_simulation_with_TI(ti)
+    TI_raw = np.squeeze(np.array(fm.TI_eff))
+    if np.nanmax(TI_raw) <= 1.5:
+        TI_raw *= 100.0  # convertir a %
+    maps.append((fm.X, fm.Y, TI_raw))
+
+# ---- Convertir a coordenadas relativas ----
+X_min = min(np.nanmin(m[0]) for m in maps)
+Y_min = min(np.nanmin(m[1]) for m in maps)
+wt_x_rel = wt16_x - X_min
+wt_y_rel = wt16_y - Y_min
+
+# Graficar
+fig, axes = plt.subplots(1, len(maps), figsize=(5*len(maps), 5), sharex=True, sharey=True)
+if len(maps) == 1:
+    axes = [axes]
+
+for ax, (ti, (X, Y, TI)) in zip(axes, zip(ti_values, maps)):
+    X_rel = X - X_min
+    Y_rel = Y - Y_min
+    vmin = np.nanmin(TI)
+    vmax = np.nanmax(TI)
+
+    cs = ax.contourf(X_rel, Y_rel, TI, levels=40, cmap="viridis", vmin=vmin, vmax=vmax)
+    ax.scatter(wt_x_rel, wt_y_rel, c='white', edgecolors='black', s=15, zorder=3)
+    ax.set_title(f"TI base = {ti*100:.1f}%")
+    ax.set_xlabel("x [m] (relativo)")
+    ax.set_aspect('equal')
+    if ax is axes[0]:
+        ax.set_ylabel("y [m] (relativo)")
+    fig.colorbar(cs, ax=ax, fraction=0.046, pad=0.04, label="TI efectivo [%]")
+
+plt.suptitle("Mapa de turbulencia efectiva (coordenadas relativas)", fontsize=14)
+plt.tight_layout()
+plt.show()
