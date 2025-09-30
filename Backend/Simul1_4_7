@@ -4,35 +4,35 @@ import matplotlib.pyplot as plt
 from py_wake.examples.data.hornsrev1 import Hornsrev1Site, V80
 from py_wake.literature.gaussian_models import Bastankhah_PorteAgel_2014
 from py_wake.turbulence_models.crespo import CrespoHernandez
+from py_wake.site._site import UniformWeibullSite
 
 # ================================
 # Función para correr simulaciones
 # ================================
 def run_simulation_with_TI(base_TI):
-    """Simula un parque con 5 turbinas en fila con un TI definido."""
-    site = Hornsrev1Site()
-    original_local_wind = site.local_wind  # guardamos el método original
+    """Simula un parque con 5 turbinas en fila con un TI ambiental definido."""
+    # Definimos un sitio con Weibull genérico y TI fijo
+    site = UniformWeibullSite(
+        p_wd=[1],          # una sola dirección de viento (simplificación)
+        a=[9.5],           # velocidad de viento media [m/s]
+        k=[2.3],           # forma de Weibull
+        ti=base_TI         # intensidad de turbulencia ambiental
+    )
 
-    # Monkey patch para fijar TI
-    def custom_local_wind(*args, **kwargs):
-        lw = original_local_wind(*args, **kwargs)
-        lw.TI = np.ones_like(lw.ws) * base_TI
-        return lw
-
-    site.local_wind = custom_local_wind
-
-    # Modelo de turbulencia y de wake
+    # Modelo de turbulencia y wake
     ti_model = CrespoHernandez()
     model = Bastankhah_PorteAgel_2014(site, V80(), k=0.032, turbulenceModel=ti_model)
 
-    # Definimos un parque de 5 turbinas en fila (espaciadas 560 m = 7D para V80)
+    # Definimos un parque de 5 turbinas en fila (espaciadas 7D para V80)
     D = 80  # diámetro del rotor [m]
     n_turbinas = 5
     x_coords = np.arange(0, n_turbinas * 7 * D, 7 * D)
     y_coords = np.zeros_like(x_coords)
 
-    sim_res = model(x_coords, y_coords, wd=[270])  # viento oeste
+    # Ejecutamos simulación para viento del oeste (270°)
+    sim_res = model(x_coords, y_coords, wd=[270])
     return sim_res.aep().sum().values, sim_res
+
 
 # ================================
 # Comparación de AEP para TI distintos
