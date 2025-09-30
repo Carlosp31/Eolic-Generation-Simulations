@@ -1,0 +1,97 @@
+#Grafico de AEP, Direccion de viento y estela para HornsrevSite example
+import matplotlib.pyplot as plt
+import numpy as np
+from py_wake.examples.data.hornsrev1 import Hornsrev1Site, V80, wt16_x, wt16_y
+from py_wake.deficit_models.gaussian import BastankhahGaussian
+
+# -------------------------------
+# 1) Definir sitio y turbinas
+# -------------------------------
+site = Hornsrev1Site()
+windTurbines = V80()
+
+# 2) Crear modelo gaussiano de estela
+model = BastankhahGaussian(site, windTurbines)
+
+# 3) Ejecutar simulación para todas las direcciones y velocidades
+sim_res = model(wt16_x, wt16_y)
+
+# -------------------------------
+#  COORDENADAS RELATIVAS PARA PLOTS
+# -------------------------------
+x_rel = wt16_x - wt16_x.min()
+y_rel = wt16_y - wt16_y.min()
+
+# -------------------------------
+#  MÉTRICAS Y RESULTADOS
+# -------------------------------
+
+# AEP total
+total_aep = sim_res.aep().sum()
+print(f"🔹 AEP total del parque: {total_aep:.2f} GWh")
+
+# Potencia total promedio (MW)
+avg_power = sim_res.Power.sum('wt').mean().values / 1e6
+print(f"🔹 Potencia promedio del parque: {avg_power:.2f} MW")
+
+# Velocidad efectiva media por turbina
+mean_ws_eff = sim_res.WS_eff.mean(['wd', 'ws'])
+print("🔹 Velocidad efectiva promedio por turbina [m/s]:")
+print(mean_ws_eff.values)
+
+# -------------------------------
+#  GRÁFICOS
+# -------------------------------
+
+# 1) AEP por turbina
+plt.figure(figsize=(6, 5))
+windTurbines.plot(x_rel, y_rel)
+c = plt.scatter(x_rel, y_rel, c=sim_res.aep().sum(['wd', 'ws']))
+plt.colorbar(c, label='AEP [GWh]')
+plt.title("AEP por turbina (BastankhahGaussian)")
+plt.xlabel("x [m] (relativo)")
+plt.ylabel("y [m] (relativo)")
+plt.axis("equal")
+plt.tight_layout()
+plt.show()
+
+# 2) Rosa de AEP
+aep_wd = sim_res.aep().sum(['ws', 'wt'])  # suma por dirección
+wd_rad = np.deg2rad(aep_wd.wd)
+fig, ax = plt.subplots(figsize=(6, 6), subplot_kw={'projection': 'polar'})
+ax.bar(wd_rad, aep_wd, width=np.deg2rad(10))
+ax.set_theta_zero_location("N")  # Norte arriba
+ax.set_theta_direction(-1)       # Sentido horario
+ax.set_title("Rosa de AEP")
+plt.tight_layout()
+plt.show()
+
+# 3) Mapa de velocidades (wake map) para una condición puntual (REEMPLAZADO)
+flow_map = sim_res.flow_map(wd=270, ws=8)
+
+WS_eff = flow_map.WS_eff.values.squeeze()
+if WS_eff.ndim == 3:
+    WS_eff = WS_eff[0, :, :]  # tomar primer wd/ws
+
+X, Y = np.meshgrid(flow_map.x.values, flow_map.y.values)
+
+# Coordenadas relativas
+X_rel = X - wt16_x.min()
+Y_rel = Y - wt16_y.min()
+wt_x_rel = wt16_x - wt16_x.min()
+wt_y_rel = wt16_y - wt16_y.min()
+
+plt.figure(figsize=(7, 5))
+cs = plt.contourf(X_rel, Y_rel, WS_eff, levels=50, cmap='Blues')
+plt.colorbar(cs, label='Velocidad del viento [m/s]')
+plt.scatter(wt_x_rel, wt_y_rel, c='k', marker='|', s=50, label='Turbinas')
+for i, (x, y) in enumerate(zip(wt_x_rel, wt_y_rel)):
+    plt.text(x, y + 50, str(i), color='k', ha='center', fontsize=8)
+
+plt.legend()
+plt.title("Mapa de velocidad a 90m (wd=270°, ws=8 m/s)")
+plt.xlabel("x [m] (relativo)")
+plt.ylabel("y [m] (relativo)")
+plt.axis("equal")
+plt.tight_layout()
+plt.show()

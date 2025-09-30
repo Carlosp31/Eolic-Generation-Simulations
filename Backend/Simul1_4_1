@@ -1,0 +1,51 @@
+#Mapa de ti efectiva
+import matplotlib.pyplot as plt
+import numpy as np
+from py_wake.examples.data.hornsrev1 import Hornsrev1Site, V80, wt16_x, wt16_y
+from py_wake.deficit_models.gaussian import BastankhahGaussian
+from py_wake.turbulence_models.crespo import CrespoHernandez
+
+# -------------------------------
+# 1) Definir sitio y turbinas
+# -------------------------------
+site = Hornsrev1Site()
+windTurbines = V80()
+
+# 2) Crear modelo gaussiano + turbulencia Crespo-Hernández
+ti_model = CrespoHernandez()
+model = BastankhahGaussian(site, windTurbines, turbulenceModel=ti_model)
+
+# 3) Ejecutar simulación
+sim_res = model(wt16_x, wt16_y)
+
+# -------------------------------
+#  MÉTRICAS
+# -------------------------------
+total_aep = sim_res.aep().sum()
+avg_power = sim_res.Power.sum('wt').mean().values / 1e6
+ti_eff = sim_res.TI_eff.mean(['wd','ws']).values
+
+print(f"🔹 AEP total: {total_aep:.2f} GWh")
+print(f"🔹 Potencia promedio: {avg_power:.2f} MW")
+print(f"🔹 TI efectiva promedio por turbina: {ti_eff}")
+
+# -------------------------------
+#  MAPA DE TI EFECTIVA
+# -------------------------------
+flow_map = sim_res.flow_map(wd=270, ws=8)  # flujo en un plano para 270°, 8m/s
+
+# Obtenemos la grilla de puntos y la TI efectiva
+x, y = flow_map.X, flow_map.Y
+ti = flow_map.TI_eff.squeeze()  # quita dimensión extra si es 3D
+
+plt.figure(figsize=(7, 5))
+cs = plt.contourf(x, y, ti, levels=50, cmap='inferno')
+plt.scatter(wt16_x, wt16_y, c='cyan', edgecolors='k', label="Turbinas")
+plt.colorbar(cs, label='TI efectiva [-]')
+plt.xlabel("x [m]")
+plt.ylabel("y [m]")
+plt.legend()
+plt.title("Mapa de TI efectiva (wd=270°, ws=8 m/s)")
+plt.axis("equal")
+plt.tight_layout()
+plt.show()

@@ -1,0 +1,18 @@
+farm:
+  layout_x: [0]
+  layout_y: [0]
+  turbine_type: ["nrel_5mw"]  # Tipo de turbina predefinida en FLORIS
+  reference_wind_height: 90.0
+
+flow_field:
+  wind_directions: [270]
+  wind_speeds: [10]
+  turbulence_intensity: 0.06
+
+turbine:
+  - rotor_diameter: 126.0
+    hub_height: 90.0
+    power_thrust_table:
+      power: [0.0, 1000.0, 5000.0]  # kW
+      thrust_coefficient: [0.0, 0.8, 0.2]
+      wind_speed: [3.0, 10.0, 25.0] 

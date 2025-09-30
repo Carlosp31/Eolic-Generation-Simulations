@@ -1,0 +1,65 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from py_wake.examples.data.hornsrev1 import Hornsrev1Site, V80
+from py_wake.literature.gaussian_models import Bastankhah_PorteAgel_2014
+from py_wake.turbulence_models.crespo import CrespoHernandez
+from py_wake.site._site import UniformWeibullSite
+
+# ================================
+# Función para correr simulaciones
+# ================================
+def run_simulation_with_TI(base_TI):
+    """Simula un parque con 5 turbinas en fila con un TI ambiental definido."""
+    # Definimos un sitio con Weibull genérico y TI fijo
+    site = UniformWeibullSite(
+        p_wd=[1],          # una sola dirección de viento (simplificación)
+        a=[9.5],           # velocidad de viento media [m/s]
+        k=[2.3],           # forma de Weibull
+        ti=base_TI         # intensidad de turbulencia ambiental
+    )
+
+    # Modelo de turbulencia y wake
+    ti_model = CrespoHernandez()
+    model = Bastankhah_PorteAgel_2014(site, V80(), k=0.032, turbulenceModel=ti_model)
+
+    # Definimos un parque de 5 turbinas en fila (espaciadas 7D para V80)
+    D = 80  # diámetro del rotor [m]
+    n_turbinas = 5
+    x_coords = np.arange(0, n_turbinas * 7 * D, 7 * D)
+    y_coords = np.zeros_like(x_coords)
+
+    # Ejecutamos simulación para viento del oeste (270°)
+    sim_res = model(x_coords, y_coords, wd=[270])
+    return sim_res.aep().sum().values, sim_res
+
+
+# ================================
+# Comparación de AEP para TI distintos
+# ================================
+ti_values = [0.04, 0.08, 0.12]
+aep_results = []
+
+for ti in ti_values:
+    print(f"Simulando con TI = {ti*100:.0f}% ...")
+    aep, _ = run_simulation_with_TI(ti)
+    aep_results.append(aep)
+
+df = pd.DataFrame({
+    "TI Base": [f"{ti*100:.0f}%" for ti in ti_values],
+    "AEP Total [GWh]": aep_results
+})
+
+print("\n📊 Comparación de AEP con distintos TI de fondo:\n")
+print(df.to_string(index=False, formatters={"AEP Total [GWh]": "{:.2f}".format}))
+
+# ================================
+# Gráfico de comparación
+# ================================
+plt.figure(figsize=(6,4))
+plt.plot([ti*100 for ti in ti_values], aep_results, marker='o', linestyle='-', color='b')
+plt.xlabel("Turbulencia Base TI [%]")
+plt.ylabel("AEP Total [GWh]")
+plt.title("Impacto de la Turbulencia en el AEP - Parque de 5 turbinas")
+plt.grid(True)
+plt.show()

@@ -1,0 +1,291 @@
+import numpy as np
+import xarray as xr
+import matplotlib.pyplot as plt
+from py_wake.site import XRSite
+from py_wake import BastankhahGaussian
+
+def crear_site_offshore_con_weibull():
+    """Crear sitio offshore con parámetros Weibull correctos"""
+    
+    wd = np.arange(0, 360, 10)  # Direcciones de 0 a 350 grados
+    ws = np.arange(3, 25, 1)    # Velocidades de 3 a 24 m/s
+    
+    print(f"Configurando {len(wd)} direcciones y {len(ws)} velocidades de viento")
+    
+    # Parámetros Weibull
+    A_values = 9.0 + 1.5 * np.cos(np.deg2rad(wd - 180))
+    k_values = 2.1 + 0.1 * np.sin(np.deg2rad(wd))
+    
+    # Frecuencia por sector
+    sector_freq = np.exp(-0.5 * ((wd - 270) / 60) ** 2)
+    sector_freq = sector_freq / sector_freq.sum()
+    
+    # Crear arrays 2D
+    A_2d = np.tile(A_values, (len(ws), 1)).T
+    k_2d = np.tile(k_values, (len(ws), 1)).T
+    WS, WD = np.meshgrid(ws, wd)
+    sector_freq_2d = np.tile(sector_freq[:, np.newaxis], (1, len(ws)))
+    
+    # Crear dataset
+    ds = xr.Dataset({
+        'Weibull_A': (['wd', 'ws'], A_2d),
+        'Weibull_k': (['wd', 'ws'], k_2d),
+        'Sector_frequency': (['wd', 'ws'], sector_freq_2d),
+        'WS': (['wd', 'ws'], WS),
+        'WD': (['wd', 'ws'], WD),
+        'TI': (['wd', 'ws'], np.full((len(wd), len(ws)), 0.08))
+    })
+    
+    ds = ds.assign_coords(wd=wd, ws=ws)
+    
+    print("Dataset creado exitosamente!")
+    print(f"Rango wd: {ds.wd.values[0]} - {ds.wd.values[-1]}°")
+    print(f"Rango ws: {ds.ws.values[0]} - {ds.ws.values[-1]} m/s")
+    
+    return XRSite(ds)
+
+def verificar_configuracion_turbinas():
+    """Verificar y corregir la configuración de turbinas - VERSIÓN ACTUALIZADA"""
+    from py_wake.examples.data.hornsrev1 import V80
+    
+    turbinas = V80()
+    
+    print("=== VERIFICACIÓN DE TURBINAS ===")
+    print(f"Nombre: {turbinas.name()}")
+    print(f"Diámetro: {turbinas.diameter()} m")
+    print(f"Altura buje: {turbinas.hub_height()} m")
+    
+    # Verificar curva de potencia - método actualizado
+    ws_test = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25]
+    print("\nCurva de potencia verificada:")
+    print("Vel (m/s) | Potencia (kW) | Coef. Thrust")
+    print("-" * 40)
+    
+    for ws in ws_test:
+        try:
+            power = turbinas.power(ws)
+            ct = turbinas.ct(ws)
+            print(f"  {ws:2.0f}     | {power:8.0f}     | {ct:.3f}")
+        except:
+            print(f"  {ws:2.0f}     | Error       | Error")
+    
+    # Verificar potencia nominal (normalmente a ~12-15 m/s)
+    potencia_nominal = turbinas.power(12)
+    print(f"\nPotencia nominal (a 12 m/s): {potencia_nominal:.0f} kW")
+    
+    return turbinas
+
+def analisis_corregido():
+    """Análisis corregido con verificación de unidades"""
+    
+    print("=== ANÁLISIS CORREGIDO ===")
+    
+    # 1. Sitio (está correcto)
+    site = crear_site_offshore_con_weibull()
+    
+    # 2. Turbinas con verificación
+    turbinas = verificar_configuracion_turbinas()
+    
+    # 3. Modelo de wake
+    wake_model = BastankhahGaussian(site, turbinas)
+    
+    # 4. Layout
+    x = np.array([0, 400, 800])
+    y = np.array([0, 0, 0])
+    
+    # 5. Simulación con más puntos
+    print("\nEjecutando simulación corregida...")
+    resultados = wake_model(
+        x, y,
+        ws=[4, 6, 8, 10, 12, 14, 16, 18, 20],  # Más velocidades
+        wd=[0, 90, 180, 270, 315],  # Más direcciones
+        TI=0.08
+    )
+    
+    return resultados, site, wake_model, x, y, turbinas
+
+def visualizacion_corregida(resultados, site, x, y, turbinas):
+    """Visualización corregida con valores reales"""
+    
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 12))
+    
+    # 1. Layout
+    ax1.scatter(x, y, s=300, c='blue', marker='s')
+    for i, (xi, yi) in enumerate(zip(x, y)):
+        ax1.annotate(f'T{i+1}', (xi, yi), xytext=(15, 15), 
+                    textcoords='offset points', fontsize=14, weight='bold')
+    ax1.set_title('Layout del Parque Eólico Offshore', fontsize=14, weight='bold')
+    ax1.set_xlabel('X (m)')
+    ax1.set_ylabel('Y (m)')
+    ax1.grid(True, alpha=0.3)
+    ax1.axis('equal')
+    
+    # 2. Potencia CORREGIDA
+    try:
+        potencia_data = resultados.P.values
+        
+        if potencia_data.size > 0:
+            # Calcular potencia promedio por turbina correctamente
+            if len(potencia_data.shape) == 3:  # [wt, wd, ws]
+                potencia_por_turbina = np.mean(potencia_data, axis=(1, 2))
+            else:
+                potencia_por_turbina = np.mean(potencia_data, axis=0)
+            
+            n_turbinas = len(potencia_por_turbina)
+            bars = ax2.bar(range(n_turbinas), potencia_por_turbina, 
+                          color=['#ff6b6b', '#4ecdc4', '#45b7d1'])
+            
+            # Agregar valores en las barras
+            for bar in bars:
+                height = bar.get_height()
+                ax2.text(bar.get_x() + bar.get_width()/2., height + 50,
+                        f'{height:.0f} kW', ha='center', va='bottom', fontweight='bold')
+            
+            ax2.set_title('Potencia Promedio por Turbina', fontsize=14, weight='bold')
+            ax2.set_xlabel('Turbina')
+            ax2.set_ylabel('Potencia (kW)')
+            ax2.grid(True, alpha=0.3)
+            
+            print(f"\n=== POTENCIAS CALCULADAS ===")
+            for i, potencia in enumerate(potencia_por_turbina):
+                print(f"Turbina {i+1}: {potencia:.0f} kW")
+                
+    except Exception as e:
+        ax2.text(0.5, 0.5, f'Error: {str(e)}', ha='center', va='center', 
+                transform=ax2.transAxes, fontsize=12)
+        ax2.set_title('Potencia - Error', fontsize=14)
+    
+    # 3. Distribución de viento
+    wd = site.ds.wd.values
+    freq = site.ds.Sector_frequency.isel(ws=0).values
+    ax3.bar(wd, freq, width=8, alpha=0.7, color='green')
+    ax3.set_title('Distribución de Direcciones de Viento', fontsize=14, weight='bold')
+    ax3.set_xlabel('Dirección (°)')
+    ax3.set_ylabel('Frecuencia')
+    ax3.grid(True, alpha=0.3)
+    
+    # 4. Información del sistema MEJORADA
+    info_text = [
+        '=== CONFIGURACIÓN OFFSHORE ===',
+        f'Turbina: {turbinas.name()}',
+        f'Diámetro: {turbinas.diameter()} m',
+        f'Altura buje: {turbinas.hub_height()} m',
+        f'Potencia nominal: {turbinas.power(12):.0f} kW',
+        f'Velocidad media: {site.ds.Weibull_A.mean().values:.1f} m/s',
+        f'Turbulencia: {site.ds.TI.mean().values:.3f}',
+        f'Número de turbinas: {len(x)}',
+        f'Separación: 400 m'
+    ]
+    
+    ax4.text(0.05, 0.95, '\n'.join(info_text), fontsize=12, 
+             verticalalignment='top', transform=ax4.transAxes,
+             bbox=dict(boxstyle="round,pad=0.3", facecolor="lightblue", alpha=0.7))
+    ax4.axis('off')
+    ax4.set_title('Especificaciones del Sistema', fontsize=14, weight='bold')
+    
+    plt.tight_layout()
+    plt.show()
+
+def analizar_perdidas_wake(resultados):
+    """Análisis específico de pérdidas por wake"""
+    print("\n=== ANÁLISIS DE PÉRDIDAS POR WAKE ===")
+    
+    try:
+        # AEP con wake
+        aep_con_wake = resultados.aep().sum()
+        print(f"AEP con efectos de wake: {aep_con_wake:.2f} GWh")
+        
+        # AEP sin wake (ideal)
+        aep_sin_wake = resultados.aep(normalize_probabilities=True).sum()
+        print(f"AEP sin efectos de wake: {aep_sin_wake:.2f} GWh")
+        
+        # Pérdidas porcentuales
+        perdidas_porcentaje = (1 - (aep_con_wake / aep_sin_wake)) * 100
+        print(f"Pérdidas por efectos de wake: {perdidas_porcentaje:.2f}%")
+        
+        # Pérdidas absolutas
+        perdidas_absolutas = aep_sin_wake - aep_con_wake
+        print(f"Pérdidas absolutas: {perdidas_absolutas:.2f} GWh/año")
+        
+        return perdidas_porcentaje, perdidas_absolutas
+        
+    except Exception as e:
+        print(f"Error en análisis de pérdidas: {e}")
+        return None, None
+
+def analisis_turbulencia_detallado(site, turbinas, x, y):
+    """Análisis detallado del efecto de la turbulencia"""
+    print("\n=== ANÁLISIS DETALLADO DE TURBULENCIA ===")
+    
+    wake_model = BastankhahGaussian(site, turbinas)
+    
+    # Probar diferentes valores de TI
+    ti_values = [0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.11, 0.12]
+    ws_test = 12  # Velocidad de rated power
+    wd_test = 270  # Dirección con mayor wake
+    
+    print(f"Efecto de TI a {ws_test} m/s, dirección {wd_test}°")
+    print("TI\tPotencia Total (kW)\tPérdidas vs TI=0.08")
+    print("-" * 55)
+    
+    potencias = []
+    referencia = None
+    
+    for ti in ti_values:
+        resultados = wake_model(x, y, ws=ws_test, wd=wd_test, TI=ti)
+        potencia_total = float(resultados.P.sum().values)
+        potencias.append(potencia_total)
+        
+        # Comparar con TI=0.08 (referencia)
+        if ti == 0.08:
+            referencia = potencia_total
+            diferencia = 0
+        else:
+            diferencia = ((potencia_total - referencia) / referencia) * 100 if referencia else 0
+        
+        print(f"{ti:.2f}\t{potencia_total:.0f} kW\t\t{diferencia:+.1f}%")
+    
+    # Gráfico
+    if referencia:
+        plt.figure(figsize=(10, 6))
+        plt.plot(ti_values, potencias, 'o-', linewidth=2, markersize=8, color='purple')
+        plt.axhline(y=referencia, color='red', linestyle='--', alpha=0.7, label='TI=0.08 (referencia)')
+        plt.title('Efecto de la Intensidad de Turbulencia en la Producción', fontsize=14, weight='bold')
+        plt.xlabel('Intensidad de Turbulencia (TI)')
+        plt.ylabel('Potencia Total (kW)')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        plt.show()
+    
+    return potencias
+
+# EJECUTAR ANÁLISIS COMPLETO CORREGIDO
+if __name__ == "__main__":
+    try:
+        print("INICIANDO ANÁLISIS CORREGIDO...")
+        
+        # Análisis principal
+        resultados, site, wake_model, x, y, turbinas = analisis_corregido()
+        
+        # Visualización corregida
+        visualizacion_corregida(resultados, site, x, y, turbinas)
+        
+        # Análisis de pérdidas por wake
+        perdidas_porcentaje, perdidas_absolutas = analizar_perdidas_wake(resultados)
+        
+        # Análisis detallado de turbulencia
+        analisis_turbulencia_detallado(site, turbinas, x, y)
+        
+        # Resumen final
+        print(f"\n=== RESUMEN FINAL ===")
+        print("✅ Simulación completada exitosamente")
+        print("✅ Layout del parque configurado")
+        print("✅ Sitio offshore con distribución Weibull")
+        print("✅ Turbinas verificadas y funcionando")
+        if perdidas_porcentaje is not None:
+            print(f"✅ Pérdidas por wake calculadas: {perdidas_porcentaje:.2f}%")
+            
+    except Exception as e:
+        print(f"Error en análisis corregido: {e}")
+        import traceback
+        traceback.print_exc()

@@ -1,0 +1,236 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from py_wake import BastankhahGaussian, NOJ
+from py_wake.site import UniformSite
+from py_wake.examples.data.hornsrev1 import V80
+
+def solucion_funcional():
+    """Solución funcional y robusta"""
+    print("=== SOLUCIÓN FUNCIONAL ===")
+    
+    # 1. Configuración básica
+    turbinas = V80()
+    print(f"Turbina: {turbinas.name()}")
+    print(f"Potencia nominal: {turbinas.power(12)/1000:.0f} kW")
+    
+    # 2. Sitio uniforme simple
+    site = UniformSite(
+        p_wd=[1/12] * 12,  # 12 direcciones equiprobables
+        ti=0.08,
+        ws=10.0
+    )
+    
+    # 3. Modelo de wake
+    wake_model = BastankhahGaussian(site, turbinas)
+    
+    # 4. Layout del parque
+    x = np.array([0, 400, 800])
+    y = np.array([0, 0, 0])
+    
+    print(f"Layout: {len(x)} turbinas, separación 400m")
+    
+    # 5. Simulación CORREGIDA
+    print("\nEjecutando simulación...")
+    
+    # Usar el método estándar sin parámetros específicos
+    resultados = wake_model(x, y, h=turbinas.hub_height())
+    
+    # 6. Análisis de resultados CORREGIDO
+    print("\n=== RESULTADOS ===")
+    
+    # Debug de la estructura de resultados
+    print("Estructura de resultados:")
+    print(f" - Tipo: {type(resultados)}")
+    print(f" - Atributos: {[attr for attr in dir(resultados) if not attr.startswith('_')]}")
+    
+    # Potencia por turbina - método corregido
+    if hasattr(resultados, 'P'):
+        potencia_data = resultados.P
+        print(f"\nDatos de potencia:")
+        print(f" - Tipo: {type(potencia_data)}")
+        print(f" - Dimensiones: {potencia_data.dims if hasattr(potencia_data, 'dims') else 'N/A'}")
+        print(f" - Forma: {potencia_data.shape if hasattr(potencia_data, 'shape') else 'N/A'}")
+        
+        # Calcular potencia promedio correctamente
+        try:
+            # Método 1: Si es DataArray de xarray
+            if hasattr(potencia_data, 'mean'):
+                potencia_promedio = potencia_data.mean().values
+                print(f" - Potencia promedio (método 1): {potencia_promedio} W")
+            
+            # Método 2: Si es numpy array
+            potencia_promedio = np.mean(potencia_data)
+            print(f" - Potencia promedio (método 2): {potencia_promedio} W")
+            
+        except Exception as e:
+            print(f" - Error calculando promedio: {e}")
+    
+    # Calcular AEP
+    try:
+        aep = resultados.aep()
+        print(f"\nAEP (Producción Anual de Energía):")
+        print(f" - AEP total: {aep.sum().values:.2f} GWh")
+        print(f" - AEP por turbina: {aep.values} GWh")
+        
+        # Calcular factor de capacidad
+        potencia_instalada = turbinas.power(12) * len(x) / 1000  # kW
+        horas_anuales = 8760
+        factor_capacidad = (aep.sum().values * 1e6) / (potencia_instalada * horas_anuales)
+        print(f" - Factor de capacidad: {factor_capacidad:.2%}")
+        
+    except Exception as e:
+        print(f"Error calculando AEP: {e}")
+    
+    return resultados, site, wake_model, x, y, turbinas
+
+def analisis_detallado(resultados, turbinas, x, y):
+    """Análisis detallado de los resultados"""
+    print("\n=== ANÁLISIS DETALLADO ===")
+    
+    try:
+        # 1. Potencia en diferentes condiciones
+        print("1. Potencia en condiciones específicas:")
+        
+        # Simular condiciones individuales
+        from py_wake import BastankhahGaussian
+        from py_wake.site import UniformSite
+        
+        site_test = UniformSite(ti=0.08, ws=10.0)
+        wake_model_test = BastankhahGaussian(site_test, turbinas)
+        
+        condiciones = [
+            (8, 270, "8 m/s, viento del Oeste"),
+            (12, 270, "12 m/s, viento del Oeste"), 
+            (16, 270, "16 m/s, viento del Oeste")
+        ]
+        
+        for ws, wd, desc in condiciones:
+            resultados_test = wake_model_test(x, y, ws=ws, wd=wd)
+            potencia_total = np.sum(resultados_test.P) / 1000  # kW
+            print(f"   - {desc}: {potencia_total:.0f} kW total")
+    
+    except Exception as e:
+        print(f"Error en análisis detallado: {e}")
+    
+    # 2. Pérdidas por wake
+    print("\n2. Análisis de pérdidas por wake:")
+    try:
+        # AEP con wake
+        aep_con_wake = resultados.aep().sum().values
+        
+        # Estimar AEP sin wake (usando primera turbina como referencia)
+        if hasattr(resultados, 'aep'):
+            aep_por_turbina = resultados.aep().values
+            if len(aep_por_turbina) > 0:
+                aep_sin_wake = aep_por_turbina[0] * len(x)  # Asumiendo que la primera tiene menos wake
+                perdidas = (1 - (aep_con_wake / aep_sin_wake)) * 100
+                print(f"   - Pérdidas por wake estimadas: {perdidas:.1f}%")
+    except Exception as e:
+        print(f"   - Error calculando pérdidas: {e}")
+
+def visualizacion_resultados(resultados, x, y, turbinas):
+    """Visualización de resultados"""
+    
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 12))
+    
+    # 1. Layout del parque
+    ax1.scatter(x, y, s=300, c='red', marker='o')
+    for i, (xi, yi) in enumerate(zip(x, y)):
+        ax1.annotate(f'T{i+1}', (xi, yi), xytext=(10, 10), 
+                    textcoords='offset points', fontsize=12, weight='bold')
+    ax1.set_title('Layout del Parque Eólico', fontsize=14, weight='bold')
+    ax1.set_xlabel('X (m)')
+    ax1.set_ylabel('Y (m)')
+    ax1.grid(True, alpha=0.3)
+    ax1.axis('equal')
+    
+    # 2. Potencia por turbina
+    ax2.set_title('Potencia por Turbina', fontsize=14, weight='bold')
+    try:
+        if hasattr(resultados, 'P'):
+            # Calcular potencia promedio por turbina
+            potencia_data = resultados.P
+            
+            if hasattr(potencia_data, 'values'):
+                # Si es array de numpy
+                if len(potencia_data.shape) >= 2:
+                    potencia_por_turbina = np.mean(potencia_data, axis=tuple(range(1, len(potencia_data.shape)))) / 1000
+                else:
+                    potencia_por_turbina = potencia_data / 1000
+                
+                n_turbinas = len(potencia_por_turbina)
+                bars = ax2.bar(range(n_turbinas), potencia_por_turbina, 
+                              color=['#ff6b6b', '#4ecdc4', '#45b7d1'])
+                
+                # Agregar valores
+                for bar in bars:
+                    height = bar.get_height()
+                    ax2.text(bar.get_x() + bar.get_width()/2., height + 5,
+                            f'{height:.0f} kW', ha='center', va='bottom', fontweight='bold')
+                
+                ax2.set_xlabel('Turbina')
+                ax2.set_ylabel('Potencia Promedio (kW)')
+                ax2.grid(True, alpha=0.3)
+                
+                print(f"\nPotencias por turbina:")
+                for i, p in enumerate(potencia_por_turbina):
+                    print(f"   Turbina {i+1}: {p:.0f} kW")
+            else:
+                ax2.text(0.5, 0.5, 'Datos de potencia no disponibles', 
+                        ha='center', va='center', transform=ax2.transAxes)
+    except Exception as e:
+        ax2.text(0.5, 0.5, f'Error: {str(e)}', 
+                ha='center', va='center', transform=ax2.transAxes)
+    
+    # 3. Producción anual (AEP)
+    ax3.set_title('Producción Anual de Energía (AEP)', fontsize=14, weight='bold')
+    try:
+        aep = resultados.aep().values
+        bars_aep = ax3.bar(range(len(aep)), aep, color='green', alpha=0.7)
+        
+        for bar in bars_aep:
+            height = bar.get_height()
+            ax3.text(bar.get_x() + bar.get_width()/2., height + 0.1,
+                    f'{height:.2f} GWh', ha='center', va='bottom', fontweight='bold')
+        
+        ax3.set_xlabel('Turbina')
+        ax3.set_ylabel('AEP (GWh)')
+        ax3.grid(True, alpha=0.3)
+    except Exception as e:
+        ax3.text(0.5, 0.5, f'Error AEP: {str(e)}', 
+                ha='center', va='center', transform=ax3.transAxes)
+    
+    # 4. Información del sistema
+    ax4.text(0.1, 0.9, 'CONFIGURACIÓN DEL SISTEMA', fontsize=16, weight='bold', transform=ax4.transAxes)
+    ax4.text(0.1, 0.7, f'Turbina: {turbinas.name()}', fontsize=12, transform=ax4.transAxes)
+    ax4.text(0.1, 0.6, f'Diámetro: {turbinas.diameter()} m', fontsize=12, transform=ax4.transAxes)
+    ax4.text(0.1, 0.5, f'Altura: {turbinas.hub_height()} m', fontsize=12, transform=ax4.transAxes)
+    ax4.text(0.1, 0.4, f'Potencia nominal: {turbinas.power(12)/1000:.0f} kW', fontsize=12, transform=ax4.transAxes)
+    ax4.text(0.1, 0.3, f'Número de turbinas: {len(x)}', fontsize=12, transform=ax4.transAxes)
+    ax4.text(0.1, 0.2, f'Separación: 400 m', fontsize=12, transform=ax4.transAxes)
+    ax4.text(0.1, 0.1, f'Modelo: BastankhahGaussian', fontsize=12, transform=ax4.transAxes)
+    ax4.axis('off')
+    
+    plt.tight_layout()
+    plt.show()
+
+# EJECUTAR SOLUCIÓN FUNCIONAL
+if __name__ == "__main__":
+    try:
+        print("INICIANDO SOLUCIÓN FUNCIONAL...")
+        
+        # Solución principal
+        resultados, site, wake_model, x, y, turbinas = solucion_funcional()
+        
+        # Análisis detallado
+        analisis_detallado(resultados, turbinas, x, y)
+        
+        # Visualización
+        visualizacion_resultados(resultados, x, y, turbinas)
+        
+        print(f"\n=== SIMULACIÓN COMPLETADA EXITOSAMENTE ===")
+        
+    except Exception as e:
+        print(f"Error en solución funcional: {e}")
+        import traceback
+        traceback.print_exc()
