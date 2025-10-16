@@ -1,10 +1,7 @@
 import customtkinter as ctk
-from tkintermapview import TkinterMapView
-from CTkMessagebox import CTkMessagebox
-from Frontend.nasa_api import descargar_datos_nasa, validar_coordenadas
-
-ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("green")
+from Frontend.mapa_modulo import MapaManager
+from Frontend.layout_modulo import LayoutManager
+from Frontend.simulacion_modulo import SimulacionManager
 
 
 class EolisimApp(ctk.CTk):
@@ -12,83 +9,73 @@ class EolisimApp(ctk.CTk):
         super().__init__()
         self.title("Eolisim - Simulación de Parques Eólicos")
         self.geometry("1200x700")
+        ctk.set_appearance_mode("dark")
+        ctk.set_default_color_theme("green")
 
-        # --- Sidebar ---
-        self.sidebar = ctk.CTkFrame(self, width=220, corner_radius=0)
+        self.sidebar = ctk.CTkFrame(self, width=220)
         self.sidebar.pack(side="left", fill="y")
+        ctk.CTkLabel(self.sidebar, text="🌬️ Eolisim", font=ctk.CTkFont(size=20, weight="bold")).pack(pady=20)
 
-        self.logo = ctk.CTkLabel(self.sidebar, text="🌬️ Eolisim", font=ctk.CTkFont(size=20, weight="bold"))
-        self.logo.pack(pady=20)
+        # Entradas coordenadas
+        self.crear_controles_sidebar()
 
-        # Entradas de coordenadas
+        # Tabs principales
+        self.main_area = ctk.CTkTabview(self, corner_radius=10)
+        self.main_area.pack(expand=True, fill="both", padx=10, pady=10)
+        self.tab_mapa = self.main_area.add("🗺️ Mapa")
+        self.tab_plano = self.main_area.add("📐 Plano X-Y")
+        self.tab_sim = self.main_area.add("⚡ Simulación")
+
+        # Módulos
+        self.mapa = MapaManager(self, self.tab_mapa)
+        self.layout = LayoutManager(self, self.tab_plano)
+        self.simulacion = SimulacionManager(self, self.tab_sim)
+
+        # Turbina
+        self.turbina_interna = "nrel_5MW"
+
+    def crear_controles_sidebar(self):
+        import customtkinter as ctk
+        from CTkMessagebox import CTkMessagebox
+
         coord_frame = ctk.CTkFrame(self.sidebar)
         coord_frame.pack(pady=10)
-
-        ctk.CTkLabel(coord_frame, text="Latitud:").grid(row=0, column=0, padx=5, pady=5)
+        ctk.CTkLabel(coord_frame, text="Latitud:").grid(row=0, column=0)
         self.lat_entry = ctk.CTkEntry(coord_frame, width=120)
-        self.lat_entry.grid(row=0, column=1, padx=5, pady=5)
-
-        ctk.CTkLabel(coord_frame, text="Longitud:").grid(row=1, column=0, padx=5, pady=5)
+        self.lat_entry.grid(row=0, column=1)
+        ctk.CTkLabel(coord_frame, text="Longitud:").grid(row=1, column=0)
         self.lon_entry = ctk.CTkEntry(coord_frame, width=120)
-        self.lon_entry.grid(row=1, column=1, padx=5, pady=5)
+        self.lon_entry.grid(row=1, column=1)
+        ctk.CTkButton(self.sidebar, text="✅ Confirmar ubicación",
+                      command=self.confirmar_coordenadas).pack(pady=10)
+        ctk.CTkButton(self.sidebar, text="📥 Descargar Datos NASA",
+                      command=self.descargar_datos).pack(pady=10)
+        self.coord_label = ctk.CTkLabel(self.sidebar, text="Coordenadas: (sin seleccionar)")
+        self.coord_label.pack(pady=10)
 
-        ctk.CTkButton(self.sidebar, text="✅ Confirmar ubicación", command=self.confirmar_coordenadas).pack(pady=10)
-        ctk.CTkButton(self.sidebar, text="📥 Descargar Datos NASA", command=self.descargar_datos).pack(pady=10)
-
-        self.coord_label = ctk.CTkLabel(self.sidebar, text="Coordenadas: (sin seleccionar)", wraplength=180)
-        self.coord_label.pack(pady=15)
-
-        # --- Mapa principal ---
-        self.main_area = ctk.CTkFrame(self, corner_radius=10)
-        self.main_area.pack(expand=True, fill="both", padx=10, pady=10)
-
-        self.map_widget = TkinterMapView(self.main_area, corner_radius=10)
-        self.map_widget.pack(expand=True, fill="both")
-        self.map_widget.set_position(4.7110, -74.0721)
-        self.map_widget.set_zoom(5)
-
-        self.map_widget.add_left_click_map_command(self.click_mapa)
-
-        self.selected_coords = None
-        self.marker = None
-
-        # Eventos de escritura manual
-        self.lat_entry.bind("<FocusOut>", self.actualizar_mapa_desde_campos)
-        self.lon_entry.bind("<FocusOut>", self.actualizar_mapa_desde_campos)
-
-    # --- Métodos GUI ---
-    def click_mapa(self, coords):
-        self.actualizar_campos_y_mapa(*coords)
-
-    def actualizar_campos_y_mapa(self, lat, lon):
-        self.selected_coords = (lat, lon)
-        self.coord_label.configure(text=f"Coordenadas seleccionadas:\nLat: {lat:.5f}\nLon: {lon:.5f}")
-
-        self.lat_entry.delete(0, "end")
-        self.lon_entry.delete(0, "end")
-        self.lat_entry.insert(0, f"{lat:.5f}")
-        self.lon_entry.insert(0, f"{lon:.5f}")
-
-        if self.marker:
-            self.marker.delete()
-        self.marker = self.map_widget.set_marker(lat, lon, text="Parque Eólico")
-
-    def actualizar_mapa_desde_campos(self, event=None):
-        lat, lon = validar_coordenadas(self.lat_entry.get(), self.lon_entry.get())
-        if lat is not None and lon is not None:
-            self.actualizar_campos_y_mapa(lat, lon)
-            self.map_widget.set_position(lat, lon)
+        ctk.CTkLabel(self.sidebar, text="Tipo de turbina:").pack(pady=(15, 5))
+        self.turbina_selector = ctk.CTkOptionMenu(
+            self.sidebar,
+            values=["NREL 5MW reference wind turbine", "IEA 10MW reference wind turbine", "IEA 15MW reference wind turbine"],
+            command=self.actualizar_turbina
+        )
+        self.turbina_selector.pack(pady=5)
+        self.turbina_selector.set("NREL 5MW reference wind turbine")
 
     def confirmar_coordenadas(self):
-        lat, lon = validar_coordenadas(self.lat_entry.get(), self.lon_entry.get())
-        if lat is None or lon is None:
-            CTkMessagebox(title="❌ Error", message="Debe ingresar coordenadas válidas.")
-            return
-        self.selected_coords = (lat, lon)
-        CTkMessagebox(title="✅ Coordenadas confirmadas", message=f"Ubicación seleccionada:\nLat: {lat}\nLon: {lon}")
+        self.mapa.confirmar_coordenadas()
 
     def descargar_datos(self):
-        if not self.selected_coords:
-            CTkMessagebox(title="⚠️ Atención", message="Primero selecciona las coordenadas del parque.")
-            return
-        descargar_datos_nasa(*self.selected_coords)
+        self.mapa.descargar_datos()
+
+    def actualizar_turbina(self, seleccion):
+        mapping = {
+            "NREL 5MW reference wind turbine": "nrel_5MW",
+            "IEA 10MW reference wind turbine": "iea_10MW",
+            "IEA 15MW reference wind turbine": "iea_15MW"
+        }
+        self.turbina_interna = mapping.get(seleccion, "nrel_5MW")
+
+
+
+

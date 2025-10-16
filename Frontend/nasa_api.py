@@ -32,7 +32,7 @@ def descargar_datos_nasa(lat, lon):
     try:
         response = requests.get(url)
         response.raise_for_status()
-        with open("nasa_wind_data.csv", "wb") as f:
+        with open("Frontend/nasa_wind_data.csv", "wb") as f:
             f.write(response.content)
         CTkMessagebox(title="✅ Éxito", message="Datos descargados correctamente en nasa_wind_data.csv")
     except Exception as e:
