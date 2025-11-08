@@ -9,6 +9,30 @@ def validar_coordenadas(lat_text, lon_text):
         return lat, lon
     except Exception:
         return None, None
+from geopy.geocoders import Nominatim
+from geopy.exc import GeocoderTimedOut, GeocoderUnavailable
+
+def es_mar_o_tierra(lat, lon):
+    """
+    Retorna True si el punto está sobre el mar u océano,
+    False si está sobre tierra firme.
+    None si no se puede determinar.
+    """
+    geolocator = Nominatim(user_agent="wind_farm_locator")
+    try:
+        location = geolocator.reverse((lat, lon), language="en", exactly_one=True, timeout=10)
+        if location is None:
+            return True  # Sin datos -> probablemente mar
+
+        address = location.raw.get("address", {})
+        if "ocean" in address or "sea" in address:
+            return True   # Mar u océano
+        if "country" in address:
+            return False  # Tierra firme
+        return True
+    except (GeocoderTimedOut, GeocoderUnavailable):
+        return None
+
 
 
 def descargar_datos_nasa(lat, lon):
