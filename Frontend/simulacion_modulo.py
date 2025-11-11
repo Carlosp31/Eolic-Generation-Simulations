@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import tkinter as tk
 import threading
+import customtkinter as ctk
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -26,17 +27,33 @@ class SimulacionManager:
         self.crear_interfaz()
 
     def crear_interfaz(self):
-        import customtkinter as ctk
 
-        # ======== Marco principal ========
+
         self.frame_principal = ctk.CTkFrame(self.tab_simulacion)
         self.frame_principal.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # ======== Panel izquierdo ========
-        self.frame_izquierdo = ctk.CTkFrame(self.frame_principal, width=300)
+        # Panel izquierdo
+        self.frame_izquierdo = ctk.CTkFrame(self.frame_principal, width=320)
         self.frame_izquierdo.pack(side="left", fill="y", padx=10, pady=10)
 
-        # ======== Panel derecho con scroll ========
+        # Contenedor de resultados (scrollable)
+        self.scroll_resultados = ctk.CTkScrollableFrame(self.frame_izquierdo, width=300)
+        self.scroll_resultados.pack(fill="both", expand=True, pady=10)
+
+        # Label de estado
+        self.label_estado = ctk.CTkLabel(self.frame_izquierdo, text="", text_color="orange")
+        self.label_estado.pack(pady=(5, 0))
+
+        # Botón ejecutar
+        self.boton_simular = ctk.CTkButton(
+            self.frame_izquierdo,
+            text="▶️ Ejecutar Simulación",
+            fg_color="#2fa86f",
+            command=self.ejecutar_simulacion
+        )
+        self.boton_simular.pack(pady=15)
+
+        # Panel derecho con scroll para gráficas
         self.frame_derecho = ctk.CTkFrame(self.frame_principal)
         self.frame_derecho.pack(side="right", fill="both", expand=True, padx=10, pady=10)
 
@@ -54,24 +71,6 @@ class SimulacionManager:
         self.canvas_derecho.pack(side="left", fill="both", expand=True)
         self.scrollbar_y.pack(side="right", fill="y")
 
-        # ======== Textbox de resultados ========
-        self.result_text = ctk.CTkTextbox(self.frame_izquierdo, width=280, height=350)
-        self.result_text.pack(pady=10)
-        self.result_text.insert("end", "Resultados de simulación aparecerán aquí...\n")
-        self.result_text.configure(state="disabled")
-
-        # ======== Label de estado ========
-        self.label_estado = ctk.CTkLabel(self.frame_izquierdo, text="", text_color="orange")
-        self.label_estado.pack(pady=(5, 0))
-
-        # ======== Botón ejecutar ========
-        self.boton_simular = ctk.CTkButton(
-            self.frame_izquierdo,
-            text="▶️ Ejecutar Simulación",
-            fg_color="#2fa86f",
-            command=self.ejecutar_simulacion
-        )
-        self.boton_simular.pack(pady=15)
 
     # ===========================================================
     # ==== Ejecución en hilo separado ====
@@ -199,48 +198,53 @@ class SimulacionManager:
     # ==== Mostrar resultados ====
     # ===========================================================
     def _mostrar_resultados(self, layout, mean_powers, farm_power_mean,
-                             E_real_GWh, aep_no_wake_scalar_Wh, wake_losses_scalar,
-                             E_max_GWh, CF_pct, elapsed_time, mem_used):
-        self.result_text.configure(state="normal")
-        self.result_text.delete("1.0", "end")
+                            E_real_GWh, aep_no_wake_scalar_Wh, wake_losses_scalar,
+                            E_max_GWh, CF_pct, elapsed_time, mem_used):
+
+        # Limpiar resultados anteriores
+        for widget in self.scroll_resultados.winfo_children():
+            widget.destroy()
+
+        def crear_tarjeta(titulo, valor, color="#2fa86f", icono="⚡"):
+            card = ctk.CTkFrame(self.scroll_resultados, fg_color="#222222", corner_radius=10)
+            card.pack(fill="x", pady=5, padx=5)
+            ctk.CTkLabel(card, text=f"{icono} {titulo}", font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", padx=10, pady=(5, 0))
+            ctk.CTkLabel(card, text=valor, font=ctk.CTkFont(size=14), text_color=color).pack(anchor="w", padx=15, pady=(0, 8))
+            return card
 
         pot_nominal = getattr(self.parent, "potencia_nominal_turbina_mw", 5.0)
         num_turbinas = len(layout[0])
-        potencias_str = ", ".join([f"{p:.1f}" for p in mean_powers])
 
-        self.result_text.insert("end", "✅ Simulación completada\n\n")
-        self.result_text.insert("end", f"Turbina: {self.parent.turbina_interna}\n")
-        self.result_text.insert("end", f"Potencia nominal: {pot_nominal:.1f} MW\n")
-        self.result_text.insert("end", f"Número de turbinas: {num_turbinas}\n\n")
+        crear_tarjeta("Turbina seleccionada", self.parent.turbina_interna, icono="🌪️")
+        crear_tarjeta("Potencia nominal", f"{pot_nominal:.1f} MW", icono="⚙️")
+        crear_tarjeta("Número de turbinas", str(num_turbinas), icono="🌀")
+        crear_tarjeta("Potencia total promedio", f"{farm_power_mean:.1f} kW", color="#2fa86f", icono="⚡")
+        crear_tarjeta("AEP estimado", f"{E_real_GWh:.3f} GWh/año", color="#00b4d8", icono="📈")
+        crear_tarjeta("AEP sin pérdidas", f"{aep_no_wake_scalar_Wh/1e9:.3f} GWh/año", color="#3a86ff", icono="💨")
+        crear_tarjeta("Pérdidas por estela", f"{wake_losses_scalar:.2f}%", color="#ffb703", icono="🌫️")
+        crear_tarjeta("Energía máxima teórica", f"{E_max_GWh:.2f} GWh/año", color="#90be6d", icono="💡")
+        crear_tarjeta("Factor de capacidad (CF)", f"{CF_pct:.2f}%", color="#8ecae6", icono="📊")
 
-        self.result_text.insert("end", f"Potencia total promedio: {farm_power_mean:.1f} kW\n")
-        #self.result_text.insert("end", f"Potencia promedio por turbina: [{potencias_str}] kW\n")
-        self.result_text.insert("end", f"(min {np.min(mean_powers):.1f} kW, max {np.max(mean_powers):.1f} kW)\n\n")
-
-        self.result_text.insert("end", f"AEP estimado: {E_real_GWh:.3f} GWh/año\n")
-        self.result_text.insert("end", f"AEP sin pérdidas por estela: {aep_no_wake_scalar_Wh/1e9:.3f} GWh/año\n")
-        self.result_text.insert("end", f"Pérdidas por estela: {wake_losses_scalar:.2f}%\n\n")
-        self.result_text.insert("end", f"Energía máxima teórica: {E_max_GWh:.2f} GWh/año\n")
-        self.result_text.insert("end", f"Factor de capacidad (CF): {CF_pct:.2f}%\n\n")
-
-        self.result_text.insert("end", "---------------------------------------\n")
-        self.result_text.insert("end", f"⏱️ Tiempo de simulación: {elapsed_time:.2f} s\n")
-        self.result_text.insert("end", f"💾 Memoria RAM usada: {mem_used:.2f} MB\n")
-        self.result_text.insert("end", "---------------------------------------\n")
-
+        # Sección final: rendimiento y métricas
+        ctk.CTkLabel(self.scroll_resultados, text="Resumen de desempeño", font=ctk.CTkFont(size=15, weight="bold")).pack(pady=(10, 5))
         if CF_pct < 30:
-            self.result_text.insert("end", "⚠️ CF bajo — recurso eólico limitado.\n")
+            color, texto = "orange", "⚠️ CF bajo — recurso eólico limitado."
         elif CF_pct < 45:
-            self.result_text.insert("end", "✅ CF moderado — sitio típico.\n")
+            color, texto = "#a3be8c", "✅ CF moderado — sitio típico."
         else:
-            self.result_text.insert("end", "🌊 CF alto — excelente recurso eólico.\n")
+            color, texto = "#00ff88", "🌊 CF alto — excelente recurso eólico."
+        ctk.CTkLabel(self.scroll_resultados, text=texto, text_color=color).pack(pady=(0, 10))
 
-        self.result_text.configure(state="disabled")
+        crear_tarjeta("Tiempo de simulación", f"{elapsed_time:.2f} s", color="#d9d9d9", icono="⏱️")
+        crear_tarjeta("Memoria usada", f"{mem_used:.2f} MB", color="#d9d9d9", icono="💾")
 
         # Visualizaciones
         self.visualizar_layout(layout)
         self.visualizar_flujo()
         self.visualizar_time_series()
+
+        self.label_estado.configure(text="✅ Simulación completada.", text_color="green")
+
 
     def _finalizar_simulacion(self):
         self.simulando = False
@@ -253,10 +257,19 @@ class SimulacionManager:
     def visualizar_layout(self, layout):
         fig, ax = plt.subplots(figsize=(7, 3))
         layoutviz.plot_turbine_points(self.fmodel, ax=ax)
-        ax.set_title("Distribución espacial de turbinas")
+
+        # --- Personalización del gráfico ---
+        ax.set_title("Distribución espacial de turbinas", fontsize=12, fontweight="bold")
+        ax.set_xlabel("Distancia en X [m]", fontsize=10)
+        ax.set_ylabel("Distancia en Y [m]", fontsize=10)
+        ax.grid(True, linestyle="--", alpha=0.5)
+        ax.set_facecolor("#f9f9f9")  # fondo claro dentro del plot
+
+        # --- Mostrar en el panel ---
         layout_canvas = FigureCanvasTkAgg(fig, master=self.frame_graficas)
         layout_canvas.draw()
         layout_canvas.get_tk_widget().pack(fill="both", expand=True, pady=10)
+
 
     def visualizar_flujo(self):
         horizontal_plane = self.fmodel.calculate_horizontal_plane(
