@@ -10,7 +10,7 @@ import threading
 import customtkinter as ctk
 import warnings
 warnings.filterwarnings("ignore")
-
+from floris import WindRose
 
 class SimulacionManager:
     def __init__(self, parent, tab_simulacion):
@@ -205,25 +205,56 @@ class SimulacionManager:
         for widget in self.scroll_resultados.winfo_children():
             widget.destroy()
 
-        def crear_tarjeta(titulo, valor, color="#2fa86f", icono="⚡"):
-            card = ctk.CTkFrame(self.scroll_resultados, fg_color="#222222", corner_radius=10)
-            card.pack(fill="x", pady=5, padx=5)
-            ctk.CTkLabel(card, text=f"{icono} {titulo}", font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", padx=10, pady=(5, 0))
-            ctk.CTkLabel(card, text=valor, font=ctk.CTkFont(size=14), text_color=color).pack(anchor="w", padx=15, pady=(0, 8))
+        def crear_tarjeta(titulo, valor, color="#2fa86f", icono="⚡", destacada=False):
+            # Estilo especial si la tarjeta es destacada
+            if destacada:
+                fg_color = "#333333"
+                font_titulo = ctk.CTkFont(size=16, weight="bold")
+                font_valor = ctk.CTkFont(size=18, weight="bold")
+                padding_y = 10
+                border = 3
+            else:
+                fg_color = "#222222"
+                font_titulo = ctk.CTkFont(size=13, weight="bold")
+                font_valor = ctk.CTkFont(size=14)
+                padding_y = 5
+                border = 0
+
+            card = ctk.CTkFrame(
+                self.scroll_resultados,
+                fg_color=fg_color,
+                corner_radius=12,
+                border_width=border,
+                border_color=color
+            )
+            card.pack(fill="x", pady=padding_y, padx=8)
+
+            ctk.CTkLabel(
+                card, text=f"{icono} {titulo}",
+                font=font_titulo
+            ).pack(anchor="w", padx=12, pady=(5, 0))
+
+            ctk.CTkLabel(
+                card, text=valor,
+                font=font_valor,
+                text_color=color
+            ).pack(anchor="w", padx=18, pady=(0, 10))
+
             return card
 
+
+        # --- Ejemplo de uso ---
         pot_nominal = getattr(self.parent, "potencia_nominal_turbina_mw", 5.0)
         num_turbinas = len(layout[0])
-
+        crear_tarjeta("AEP estimado", f"{E_real_GWh:.3f} GWh/año", color="#00b4d8", icono="📈", destacada=True)
+        crear_tarjeta("Pérdidas por estela", f"{wake_losses_scalar:.2f}%", color="#ffb703", icono="🌫️", destacada=True)
         crear_tarjeta("Turbina seleccionada", self.parent.turbina_interna, icono="🌪️")
         crear_tarjeta("Potencia nominal", f"{pot_nominal:.1f} MW", icono="⚙️")
         crear_tarjeta("Número de turbinas", str(num_turbinas), icono="🌀")
         crear_tarjeta("Potencia total promedio", f"{farm_power_mean:.1f} kW", color="#2fa86f", icono="⚡")
-        crear_tarjeta("AEP estimado", f"{E_real_GWh:.3f} GWh/año", color="#00b4d8", icono="📈")
-        crear_tarjeta("AEP sin pérdidas", f"{aep_no_wake_scalar_Wh/1e9:.3f} GWh/año", color="#3a86ff", icono="💨")
-        crear_tarjeta("Pérdidas por estela", f"{wake_losses_scalar:.2f}%", color="#ffb703", icono="🌫️")
         crear_tarjeta("Energía máxima teórica", f"{E_max_GWh:.2f} GWh/año", color="#90be6d", icono="💡")
         crear_tarjeta("Factor de capacidad (CF)", f"{CF_pct:.2f}%", color="#8ecae6", icono="📊")
+
 
         # Sección final: rendimiento y métricas
         ctk.CTkLabel(self.scroll_resultados, text="Resumen de desempeño", font=ctk.CTkFont(size=15, weight="bold")).pack(pady=(10, 5))
@@ -242,6 +273,7 @@ class SimulacionManager:
         self.visualizar_layout(layout)
         self.visualizar_flujo()
         self.visualizar_time_series()
+        self.visualizar_wind_rose_floris()
 
         self.label_estado.configure(text="✅ Simulación completada.", text_color="green")
 
@@ -260,15 +292,20 @@ class SimulacionManager:
 
         # --- Personalización del gráfico ---
         ax.set_title("Distribución espacial de turbinas", fontsize=12, fontweight="bold")
-        ax.set_xlabel("Distancia en X [m]", fontsize=10)
-        ax.set_ylabel("Distancia en Y [m]", fontsize=10)
+        ax.set_xlabel("X [m]", fontsize=10)
+        ax.set_ylabel("Y [m]", fontsize=10)
         ax.grid(True, linestyle="--", alpha=0.5)
-        ax.set_facecolor("#f9f9f9")  # fondo claro dentro del plot
+        ax.set_facecolor("#f9f9f9")
+
+        # 🔧 Ajuste de márgenes para que no se corte el texto del eje X
+        fig.tight_layout(pad=2)
+        fig.subplots_adjust(bottom=0.2)  # deja más espacio bajo el eje X
 
         # --- Mostrar en el panel ---
         layout_canvas = FigureCanvasTkAgg(fig, master=self.frame_graficas)
         layout_canvas.draw()
         layout_canvas.get_tk_widget().pack(fill="both", expand=True, pady=10)
+
 
 
     def visualizar_flujo(self):
@@ -278,28 +315,94 @@ class SimulacionManager:
         visualize_cut_plane(horizontal_plane, ax=ax, label_contours=False,
                             title="Campo de flujo a altura del buje")
         layoutviz.plot_turbine_rotors(self.fmodel, ax=ax)
-        ax.set_xlabel("x [m]")
-        ax.set_ylabel("y [m]")
+        ax.set_xlabel("X [m]")
+        ax.set_ylabel("Y [m]")
         flow_canvas = FigureCanvasTkAgg(fig, master=self.frame_graficas)
         flow_canvas.draw()
         flow_canvas.get_tk_widget().pack(fill="both", expand=True, pady=10)
-
     def visualizar_time_series(self):
+            ts = self.parent.time_series
+            wind_directions = np.array(ts.wind_directions)
+            wind_speeds = np.array(ts.wind_speeds)
+            turbulence_intensities = np.array(ts.turbulence_intensities)
+
+            fig, axes = plt.subplots(3, 1, figsize=(7, 6), sharex=True)
+
+            # Título general
+            fig.suptitle("Series Temporales del Recurso Eólico", fontsize=20)
+
+            # Gráficas
+            axes[0].plot(wind_directions, color='tab:blue')
+            axes[0].set_ylabel("Dirección [°]", fontsize=20)
+
+            axes[1].plot(wind_speeds, color='tab:green')
+            axes[1].set_ylabel("Velocidad [m/s]", fontsize=20)
+
+            axes[2].plot(turbulence_intensities, color='tab:orange')
+            axes[2].set_ylabel("TI", fontsize=20)
+            axes[2].set_xlabel("Horas del año [h]", fontsize=20)
+
+            # Aplicar font size a ticks y grid
+            for ax in axes:
+                ax.tick_params(axis='both', labelsize=20)
+                ax.grid(True, linestyle='--', alpha=0.5)
+
+            ts_canvas = FigureCanvasTkAgg(fig, master=self.frame_graficas)
+            ts_canvas.draw()
+            ts_canvas.get_tk_widget().pack(fill="both", expand=True, pady=10)
+
+
+    from floris import WindRose
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+    def visualizar_wind_rose_floris(self):
         ts = self.parent.time_series
         wind_directions = np.array(ts.wind_directions)
         wind_speeds = np.array(ts.wind_speeds)
         turbulence_intensities = np.array(ts.turbulence_intensities)
-        fig, axes = plt.subplots(3, 1, figsize=(7, 6), sharex=True)
-        fig.suptitle("Series Temporales del Recurso Eólico")
-        axes[0].plot(wind_directions, color='tab:blue')
-        axes[0].set_ylabel("Dirección [°]")
-        axes[1].plot(wind_speeds, color='tab:green')
-        axes[1].set_ylabel("Velocidad [m/s]")
-        axes[2].plot(turbulence_intensities, color='tab:orange')
-        axes[2].set_ylabel("TI [-]")
-        axes[2].set_xlabel("Índice temporal")
-        for ax in axes:
-            ax.grid(True, linestyle='--', alpha=0.5)
-        ts_canvas = FigureCanvasTkAgg(fig, master=self.frame_graficas)
-        ts_canvas.draw()
-        ts_canvas.get_tk_widget().pack(fill="both", expand=True, pady=10)
+
+        # --- 1. Discretizar datos ---
+        dir_bins = np.arange(0, 360, 10)  # cada 10°
+        spd_bins = np.arange(0, np.ceil(np.max(wind_speeds)) + 1, 1)  # cada 1 m/s
+
+        freq_table, _, _ = np.histogram2d(
+            wind_directions,
+            wind_speeds,
+            bins=[dir_bins, spd_bins],
+            density=True
+        )
+        freq_table = freq_table / np.sum(freq_table)
+        dir_table = 0.5 * (dir_bins[:-1] + dir_bins[1:])
+        spd_table = 0.5 * (spd_bins[:-1] + spd_bins[1:])
+
+        # --- 2. Crear objeto WindRose ---
+        wind_rose = WindRose(
+            wind_directions=dir_table,
+            wind_speeds=spd_table,
+            ti_table=np.mean(turbulence_intensities),
+            freq_table=freq_table
+        )
+
+        # --- 3. Graficar ---
+        fig = plt.figure(figsize=(6, 6))
+        ax = fig.add_subplot(111, projection="polar")
+        wind_rose.plot(ax=ax)
+
+        ax.set_title("Rosa de Vientos - Distribución del Recurso Eólico", pad=20)
+        ax.grid(True, linestyle='--', alpha=0.5)
+
+        # --- 4. Agregar ángulos junto con puntos cardinales ---
+        ax.set_thetagrids(
+            np.arange(0, 360, 45),
+            labels=['0° N', '45° NE', '90° E', '135° SE', '180° S', '225° SW', '270° W', '315° NW']
+        )
+
+        # --- 5. Eliminar los valores numéricos radiales (frecuencias) ---
+        ax.set_yticklabels([])  # Oculta las etiquetas dentro del círculo
+
+        # --- 6. Mostrar en Tkinter ---
+        windrose_canvas = FigureCanvasTkAgg(fig, master=self.frame_graficas)
+        windrose_canvas.draw()
+        windrose_canvas.get_tk_widget().pack(fill="both", expand=True, pady=10)
